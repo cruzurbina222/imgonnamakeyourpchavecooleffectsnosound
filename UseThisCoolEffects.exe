@@ -1,0 +1,394 @@
+#include <windows.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
+
+// Function prototypes
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void DrawRandomLines(HDC hdc, int width, int height);
+void DrawRotatingRectangles(HDC hdc, int width, int height);
+void DrawCirclePattern(HDC hdc, int width, int height);
+void DrawFadingColors(HDC hdc, int width, int height);
+void DrawMovingStars(HDC hdc, int width, int height);
+void DrawPlasmaEffect(HDC hdc, int width, int height, DWORD time); // Added time parameter
+void DrawExpandingCircles(HDC hdc, int width, int height, DWORD time);
+void Draw3DRotatingCubes(HDC hdc, int width, int height, DWORD time);
+
+// Global variables
+HBRUSH g_hBrush = NULL;
+HPEN g_hPen = NULL;
+int g_effectIndex = 0;
+DWORD g_startTime; // Store the start time of the program
+bool g_useOpenGL = false; // Flag to control OpenGL usage (set to false for this version)
+
+// Array of effect functions
+typedef void (*EffectFunc)(HDC, int, int, DWORD); // Added DWORD for time
+EffectFunc g_effects[] = {
+    (EffectFunc)DrawRandomLines,
+    (EffectFunc)DrawRotatingRectangles,
+    (EffectFunc)DrawCirclePattern,
+    (EffectFunc)DrawFadingColors,
+    (EffectFunc)DrawMovingStars,
+    (EffectFunc)DrawPlasmaEffect,
+    (EffectFunc)DrawExpandingCircles,
+    (EffectFunc)Draw3DRotatingCubes
+};
+const int NUM_EFFECTS = sizeof(g_effects) / sizeof(g_effects[0]);
+
+// Function to get system version (for demonstration purposes)
+void GetSystemVersionString(char* buffer, int bufferSize) {
+    OSVERSIONINFOEX osvi;
+    ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+
+    if (GetVersionEx((OSVERSIONINFO*)&osvi)) {
+        sprintf_s(buffer, bufferSize, "Windows %d.%d (Build %d)",
+            osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
+    }
+    else {
+        sprintf_s(buffer, bufferSize, "Unknown Windows Version");
+    }
+}
+
+// Entry point
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Check for minimum Windows version (Windows XP = 5.1)
+    OSVERSIONINFOEX osvi;
+    ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+    if (!GetVersionEx((OSVERSIONINFO*)&osvi))
+    {
+        MessageBox(NULL, "This program requires Windows XP or later.", "Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+    if (osvi.dwMajorVersion < 5 || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion < 1)) {
+        MessageBox(NULL, "This program requires Windows XP or later.", "Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    // Register the window class
+    const char CLASS_NAME[] = "MyWindowClass";
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW); // Set cursor.
+
+    if (!RegisterClass(&wc)) {
+        MessageBox(NULL, "Failed to register window class.", "Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    // Create the window
+    HWND hwnd = CreateWindowEx(
+        0,
+        CLASS_NAME,
+        "Cool Effects Program",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
+        NULL,
+        NULL,
+        hInstance,
+        NULL
+    );
+
+    if (!hwnd) {
+        MessageBox(NULL, "Failed to create window.", "Error", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+
+    // Initialize random seed and start time
+    srand(time(NULL));
+    g_startTime = GetTickCount();
+
+    // Message loop
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    return 0;
+}
+
+// Window procedure
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_CREATE:
+        // Create timer to switch effects
+        SetTimer(hwnd, 1, 15000, NULL); // Timer interval: 15 seconds (15000 ms)
+        break;
+    case WM_SIZE: {
+        // Handle window resizing
+        int width = LOWORD(lParam);
+        int height = HIWORD(lParam);
+        // No need to resize the OpenGL viewport here, as we are not using it.
+        break;
+    }
+    case WM_TIMER:
+        // Timer message: switch to the next effect
+        g_effectIndex = (g_effectIndex + 1) % NUM_EFFECTS;
+        InvalidateRect(hwnd, NULL, TRUE); // Redraw the entire window
+        break;
+    case WM_PAINT: {
+        // Paint message: draw the current effect
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        int width = rect.right - rect.left;
+        int height = rect.bottom - rect.top;
+
+        // Get the current time for effects that use it
+        DWORD currentTime = GetTickCount();
+
+        // Call the current effect function
+        g_effects[g_effectIndex](hdc, width, height, currentTime);
+
+        EndPaint(hwnd, &ps);
+        break;
+    }
+    case WM_DESTROY:
+        // Clean up resources
+        KillTimer(hwnd, 1); // Kill the timer
+        if (g_hBrush) DeleteObject(g_hBrush);
+        if (g_hPen) DeleteObject(g_hPen);
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+    return 0;
+}
+
+// --- Effect Functions ---
+
+// 1. Draw Random Lines
+void DrawRandomLines(HDC hdc, int width, int height) {
+    for (int i = 0; i < 100; i++) {
+        int x1 = rand() % width;
+        int y1 = rand() % height;
+        int x2 = rand() % width;
+        int y2 = rand() % height;
+        COLORREF color = RGB(rand() % 256, rand() % 256, rand() % 256);
+
+        if (g_hPen) DeleteObject(g_hPen);
+        g_hPen = CreatePen(PS_SOLID, 1, color);
+        SelectObject(hdc, g_hPen);
+
+        MoveToEx(hdc, x1, y1, NULL);
+        LineTo(hdc, x2, y2);
+    }
+}
+
+// 2. Draw Rotating Rectangles
+void DrawRotatingRectangles(HDC hdc, int width, int height) {
+    for (int i = 0; i < 5; i++) {
+        int size = 50 + i * 30;
+        int x = width / 2 - size / 2;
+        int y = height / 2 - size / 2;
+        COLORREF color = RGB(rand() % 256, rand() % 256, rand() % 256);
+        float angle = (float)(GetTickCount() % 3600) / 10.0f + i * 20.0f; // Use GetTickCount()
+
+        if (g_hBrush) DeleteObject(g_hBrush);
+        g_hBrush = CreateSolidBrush(color);
+        SelectObject(hdc, g_hBrush);
+
+        // Calculate rotated rectangle coordinates
+        POINT points[4];
+        float centerX = x + size / 2.0f;
+        float centerY = y + size / 2.0f;
+        for (int j = 0; j < 4; j++) {
+            float rad = (angle + j * 90.0f) * 3.14159f / 180.0f;
+            float dx = size / 2.0f * cosf(rad);
+            float dy = size / 2.0f * sinf(rad);
+            points[j].x = (int)(centerX + dx);
+            points[j].y = (int)(centerY + dy);
+        }
+        Polygon(hdc, points, 4);
+    }
+}
+
+// 3. Draw Circle Pattern
+void DrawCirclePattern(HDC hdc, int width, int height) {
+    int centerX = width / 2;
+    int centerY = height / 2;
+    int numCircles = 10;
+    float timeParam = (float)(GetTickCount() % 5000) / 5000.0f; // Normalize time
+
+    for (int i = 0; i < numCircles; i++) {
+        float radius = 20 + i * 30 + 20 * sinf(timeParam * 2.0f + i * 0.5f);
+        COLORREF color = RGB(
+            (int)(128 + 127 * cosf(timeParam + i * 0.8f)),
+            (int)(128 + 127 * sinf(timeParam + i * 1.2f)),
+            (int)(128 + 127 * cosf(timeParam + i * 0.3f))
+        );
+
+        if (g_hBrush) DeleteObject(g_hBrush);
+        g_hBrush = CreateSolidBrush(color);
+        SelectObject(hdc, g_hBrush);
+        Ellipse(hdc, (int)(centerX - radius), (int)(centerY - radius), (int)(centerX + radius), (int)(centerY + radius));
+    }
+}
+
+// 4. Draw Fading Colors
+void DrawFadingColors(HDC hdc, int width, int height) {
+    static COLORREF color = 0;
+    static bool fadeUp = true;
+    // Use GetTickCount() for smoother animation
+    DWORD time = GetTickCount();
+    float fadeSpeed = 0.5f; // Adjust for speed
+
+    if (fadeUp) {
+        color = RGB(
+            min(255, GetRValue(color) + (int)(fadeSpeed * 1.0f)),
+            min(255, GetGValue(color) + (int)(fadeSpeed * 1.0f)),
+            min(255, GetBValue(color) + (int)(fadeSpeed * 1.0f))
+        );
+        if (GetRValue(color) == 255 && GetGValue(color) == 255 && GetBValue(color) == 255) {
+            fadeUp = false;
+        }
+    }
+    else {
+        color = RGB(
+            max(0, GetRValue(color) - (int)(fadeSpeed * 1.0f)),
+            max(0, GetGValue(color) - (int)(fadeSpeed * 1.0f)),
+            max(0, GetBValue(color) - (int)(fadeSpeed * 1.0f))
+        );
+        if (GetRValue(color) == 0 && GetGValue(color) == 0 && GetBValue(color) == 0) {
+            fadeUp = true;
+        }
+    }
+
+    if (g_hBrush) DeleteObject(g_hBrush);
+    g_hBrush = CreateSolidBrush(color);
+    SelectObject(hdc, g_hBrush);
+    Rectangle(hdc, 0, 0, width, height);
+}
+
+// 5. Draw Moving Stars
+void DrawMovingStars(HDC hdc, int width, int height) {
+    static POINT stars[100];
+    static int starSpeeds[100];
+    static bool initialized = false;
+
+    if (!initialized) {
+        // Initialize star positions and speeds
+        for (int i = 0; i < 100; i++) {
+            stars[i].x = rand() % width;
+            stars[i].y = rand() % height;
+            starSpeeds[i] = 1 + rand() % 3; // Random speed between 1 and 3
+        }
+        initialized = true;
+    }
+
+    // Move and draw stars
+    for (int i = 0; i < 100; i++) {
+        stars[i].x += starSpeeds[i];
+        if (stars[i].x > width) {
+            stars[i].x = 0; // Wrap around
+            stars[i].x = 0; // Reset X position
+        }
+        COLORREF color = RGB(255, 255, 255); // White stars
+        if (g_hBrush) DeleteObject(g_hBrush);
+        g_hBrush = CreateSolidBrush(color);
+        SelectObject(hdc, g_hBrush);
+        Ellipse(hdc, stars[i].x, stars[i].y, stars[i].x + 3, stars[i].y + 3); // Small circles for stars
+    }
+}
+
+// 6. Draw Plasma Effect
+void DrawPlasmaEffect(HDC hdc, int width, int height, DWORD time) {
+    // Plasma effect parameters
+    int x, y;
+    float timeParam = (float)time / 200.0f; // Adjust speed as needed.
+
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            // Plasma color calculation (more complex, uses time)
+            float value = sinf(x * 0.1f + timeParam) + cosf(y * 0.05f + timeParam * 1.5f) +
+                          sinf((x + y) * 0.08f + timeParam * 2.0f) + cosf((x - y) * 0.12f + timeParam * 0.5f);
+            value = value / 4.0f;  // Normalize to range -1 to 1
+            int colorValue = (int)((value + 1.0f) * 127.5f); // Scale to 0-255
+
+            COLORREF color = RGB(
+                (int)(128 + 127 * sinf(colorValue * 0.01f + timeParam)),
+                (int)(128 + 127 * cosf(colorValue * 0.02f + timeParam * 1.2f)),
+                (int)(128 + 127 * sinf(colorValue * 0.03f + timeParam * 0.7f))
+            );
+            SetPixel(hdc, x, y, color);
+        }
+    }
+}
+
+// 7. Draw Expanding Circles
+void DrawExpandingCircles(HDC hdc, int width, int height, DWORD time) {
+    static int numCircles = 5;
+    static float radii[5];
+    static COLORREF colors[5];
+    static bool initialized = false;
+
+    if (!initialized) {
+        // Initialize circle data
+        for (int i = 0; i < numCircles; i++) {
+            radii[i] = 0;
+            colors[i] = RGB(rand() % 256, rand() % 256, rand() % 256);
+        }
+        initialized = true;
+    }
+
+    float deltaTime = (float)(time % 10000) / 1000.0f; // Get time within a period
+
+    // Expand and draw circles
+    for (int i = 0; i < numCircles; i++) {
+        radii[i] = 20 + (deltaTime * 30.0f) + i * 20.0f; //radius increases with time.
+        if (radii[i] > width/2 || radii[i] > height/2)
+        {
+            radii[i] = 20; //reset radius.
+        }
+
+        if (g_hBrush) DeleteObject(g_hBrush);
+        g_hBrush = CreateSolidBrush(colors[i]);
+        SelectObject(hdc, g_hBrush);
+        Ellipse(hdc, width / 2 - (int)radii[i], height / 2 - (int)radii[i], width / 2 + (int)radii[i], height / 2 + (int)radii[i]);
+    }
+}
+
+// 8. Draw 3D Rotating Cubes (Simplified - no actual 3D, just rotation)
+void Draw3DRotatingCubes(HDC hdc, int width, int height, DWORD time) {
+    float angleX = (float)time / 1000.0f; // Use time for rotation
+    float angleY = (float)time / 1500.0f;
+    float cubeSize = 50.0f;
+    float centerX = width / 2.0f;
+    float centerY = height / 2.0f;
+    // Define the 8 vertices of a cube.
+    POINT points[8];
+    for (int i = 0; i < 8; i++)
+    {
+        float x = (i & 1) ? cubeSize/2 : -cubeSize/2;
+        float y = (i & 2) ? cubeSize/2 : -cubeSize/2;
+        float z = (i & 4) ? cubeSize/2 : -cubeSize/2;
+
+        // Simple rotation (2D projection of 3D)
+        float rotatedX = x * cosf(angleX) - z * sinf(angleX);
+        float rotatedZ = x * sinf(angleX) + z * cosf(angleX);
+        float rotatedY = y * cosf(angleY) - rotatedZ * sinf(angleY);
+
+        points[i].x = (int)(centerX + rotatedX);
+        points[i].y = (int)(centerY + rotatedY);
+    }
+     // Define the edges of the cube.
+    int edges[12][2] = {
+        {0, 1}, {1, 3}, {3, 2}, {2, 0}, // Front face
+        {4, 5}, {5, 7}, {7, 6}, {6, 4}, // Back face
+        {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
+    };
+    for (int i = 0; i < 12; i++)
+    {
+        if (g_hPen) DeleteObject(g_hPen);
+        g_hPen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+        SelectObject(hdc, g_hPen);
+        MoveToEx(hdc, points[edges[i][0]].x, points[edges[i][0]].y, NULL);
+        LineTo(hdc, points[edges[i][1]].x, points[edges[i][1]].y);
+    }
+}
