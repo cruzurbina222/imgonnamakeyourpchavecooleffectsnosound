@@ -1,0 +1,90 @@
+import ctypes
+import random
+import time
+import threading
+
+# --- Windows API Constants ---
+HWND_DESKTOP = 0
+SPI_SETDESKWALLPAPER = 0x0014
+SPIF_UPDATEINIFILE = 0x01
+SPIF_SENDWININICHANGE = 0x02
+
+# --- Configuration ---
+EFFECT_DURATION = 15  # seconds
+PROGRAM_DURATION = 600  # seconds (10 minutes)
+IMAGE_WIDTH = ctypes.windll.user32.GetSystemMetrics(0)
+IMAGE_HEIGHT = ctypes.windll.user32.GetSystemMetrics(1)
+TEMP_IMAGE_PATH = "temp_wallpaper.bmp"
+
+# --- Drawing Functions ---
+def create_random_circles_image():
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), "black")
+    draw = ImageDraw.Draw(image)
+    for _ in range(50):
+        radius = random.randint(10, 100)
+        x = random.randint(radius, IMAGE_WIDTH - radius)
+        y = random.randint(radius, IMAGE_HEIGHT - radius)
+        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color)
+    image.save(TEMP_IMAGE_PATH, "BMP")
+
+def create_random_lines_image():
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), "black")
+    draw = ImageDraw.Draw(image)
+    for _ in range(30):
+        start_x = random.randint(0, IMAGE_WIDTH)
+        start_y = random.randint(0, IMAGE_HEIGHT)
+        end_x = random.randint(0, IMAGE_WIDTH)
+        end_y = random.randint(0, IMAGE_HEIGHT)
+        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        width = random.randint(2, 10)
+        draw.line((start_x, start_y, end_x, end_y), fill=color, width=width)
+    image.save(TEMP_IMAGE_PATH, "BMP")
+
+def create_random_rectangles_image():
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), "black")
+    draw = ImageDraw.Draw(image)
+    for _ in range(40):
+        width = random.randint(50, 200)
+        height = random.randint(50, 200)
+        x = random.randint(0, IMAGE_WIDTH - width)
+        y = random.randint(0, IMAGE_HEIGHT - height)
+        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        draw.rectangle((x, y, x + width, y + height), fill=color)
+    image.save(TEMP_IMAGE_PATH, "BMP")
+
+def create_solid_color_image():
+    from PIL import Image
+    color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+    image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), color)
+    image.save(TEMP_IMAGE_PATH, "BMP")
+
+# --- Set Wallpaper Function ---
+def set_wallpaper(path):
+    ctypes.windll.user32.SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, path, SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE)
+
+# --- Effect Cycling Function ---
+def run_effects():
+    effects = [
+        create_random_circles_image,
+        create_random_lines_image,
+        create_random_rectangles_image,
+        create_solid_color_image
+    ]
+    start_time = time.time()
+    while time.time() - start_time < PROGRAM_DURATION:
+        effect_func = random.choice(effects)
+        effect_func()
+        set_wallpaper(TEMP_IMAGE_PATH)
+        time.sleep(EFFECT_DURATION)
+
+    # Clean up the temporary image
+    import os
+    if os.path.exists(TEMP_IMAGE_PATH):
+        os.remove(TEMP_IMAGE_PATH)
+
+if __name__ == "__main__":
+    run_effects()
